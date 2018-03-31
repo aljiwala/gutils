@@ -30,6 +30,21 @@ func (e ErrNotOK) Error() string {
 	return fmt.Sprintf("code %v while downloading %v", e.Err, e.URL)
 }
 
+// EnsureHTTPS wraps a HTTP handler and ensures that it was requested over HTTPS.
+// If "DISABLED_ENSURE_HTTPS" is in the environment and set to either "1" or "true",
+// then EnsureHTTPS should always pass.
+func EnsureHTTPS(handler http.HandlerFunc) http.HandlerFunc {
+	v := os.Getenv("DISABLE_ENSURE_HTTPS")
+	disabled := v == "1" || v == "true"
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !disabled && (r.URL.Scheme != "https" && r.Header.Get("X-Forwarded-Proto") != "https") {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		handler(w, r)
+	}
+}
+
 // CreateFormFile is like multipart.Writer.CreateFormFile, but allows the
 // setting of Content-Type.
 func CreateFormFile(w *multipart.Writer, fieldname, filename, contentType string) (io.Writer, error) {
@@ -93,52 +108,52 @@ Outer:
 	return
 }
 
-// ReadRequestFiles reads the files from the request, and calls ReaderToFile on them
-func ReadRequestFiles(r *http.Request) (filenames []string, status int, err error) {
-	defer r.Body.Close()
-	err = r.ParseMultipartForm(1 << 20)
-	if err != nil {
-		status, err =
-			http.StatusMethodNotAllowed,
-			errors.New("cannot parse request as multipart-form: "+err.Error())
-		return
-	}
-	if r.MultipartForm == nil || len(r.MultipartForm.File) == 0 {
-		status, err = http.StatusMethodNotAllowed, errors.New("no files?")
-		return
-	}
+// // ReadRequestFiles reads the files from the request, and calls ReaderToFile on them
+// func ReadRequestFiles(r *http.Request) (filenames []string, status int, err error) {
+// 	defer r.Body.Close()
+// 	err = r.ParseMultipartForm(1 << 20)
+// 	if err != nil {
+// 		status, err =
+// 			http.StatusMethodNotAllowed,
+// 			errors.New("cannot parse request as multipart-form: "+err.Error())
+// 		return
+// 	}
+// 	if r.MultipartForm == nil || len(r.MultipartForm.File) == 0 {
+// 		status, err = http.StatusMethodNotAllowed, errors.New("no files?")
+// 		return
+// 	}
 
-	filenames = make([]string, 0, len(r.MultipartForm.File))
-	var f multipart.File
-	var fn string
-	for _, fileHeaders := range r.MultipartForm.File {
-		for _, fh := range fileHeaders {
-			if f, err = fh.Open(); err != nil {
-				status, err =
-					http.StatusMethodNotAllowed,
-					fmt.Errorf("error reading part %q: %s", fh.Filename, err)
-				return
-			}
+// 	filenames = make([]string, 0, len(r.MultipartForm.File))
+// 	var f multipart.File
+// 	var fn string
+// 	for _, fileHeaders := range r.MultipartForm.File {
+// 		for _, fh := range fileHeaders {
+// 			if f, err = fh.Open(); err != nil {
+// 				status, err =
+// 					http.StatusMethodNotAllowed,
+// 					fmt.Errorf("error reading part %q: %s", fh.Filename, err)
+// 				return
+// 			}
 
-			if fn, err = temp.ReaderToFile(f, fh.Filename, ""); err != nil {
-				f.Close()
-				status, err =
-					http.StatusInternalServerError,
-					fmt.Errorf("error saving %q: %s", fh.Filename, err)
-				return
-			}
-			f.Close()
-			filenames = append(filenames, fn)
-		}
-	}
-	if len(filenames) == 0 {
-		status, err = http.StatusMethodNotAllowed, errors.New("no files??")
-		return
-	}
+// 			if fn, err = temp.ReaderToFile(f, fh.Filename, ""); err != nil {
+// 				f.Close()
+// 				status, err =
+// 					http.StatusInternalServerError,
+// 					fmt.Errorf("error saving %q: %s", fh.Filename, err)
+// 				return
+// 			}
+// 			f.Close()
+// 			filenames = append(filenames, fn)
+// 		}
+// 	}
+// 	if len(filenames) == 0 {
+// 		status, err = http.StatusMethodNotAllowed, errors.New("no files??")
+// 		return
+// 	}
 
-	status = http.StatusOK
-	return
-}
+// 	status = http.StatusOK
+// 	return
+// }
 
 // SendFile sends the given file as response
 func SendFile(w http.ResponseWriter, filename, contentType string) error {
@@ -541,10 +556,15 @@ func expectQuality(s string) (q float64, rest string) {
 	return q + float64(n)/float64(d), s[i:]
 }
 
-func expectTokenOrQuoted(s string) (value string, rest string) {
-	if !strings.HasPrefix(s, "\"") {
-		return expectToken(s)
+func expectTokenOrQuoted(s string) (value, rest string) {
+	pkey, s := expectToken(s)
+	if pkey == "" {
+		return
 	}
+	if !strings.HasPrefix(s, "\"") {
+		return "", s
+	}
+
 	s = s[1:]
 	for i := 0; i < len(s); i++ {
 		switch s[i] {

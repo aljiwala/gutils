@@ -35,8 +35,6 @@ var (
 	getHostname sync.Once
 )
 
-flag.Args()
-
 // WordCount returns counts of each word from given string.
 //
 // Example:
