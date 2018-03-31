@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -103,6 +104,36 @@ func BuildFileRequest(
 	urlStr, fieldname, path string, params, headers map[string]string) (
 	*http.Request, error) {
 	return buildFileRequest(urlStr, fieldname, path, params, headers)
+}
+
+// GetEnvWithDefault should return the value of $env from the OS
+// and if it's empty, returns default one.
+func GetEnvWithDefault(env, def string) (value string) {
+	return getEnvWithDefault(env, def)
+}
+
+// GetEnvWithDefaultInt return the int value of $env from the OS and
+// if it's empty, returns def.
+func GetEnvWithDefaultInt(env string, def int) (int, error) {
+	return getEnvWithDefaultInt(env, def)
+}
+
+// GetEnvWithDefaultBool should return the bool value of $env from the OS
+// and if it's empty, returns def.
+func GetEnvWithDefaultBool(env string, def bool) (bool, error) {
+	return getEnvWithDefaultBool(env, def)
+}
+
+// GetEnvWithDefaultDuration return the time duration value of $env from the OS and
+// if it's empty, returns def.
+func GetEnvWithDefaultDuration(env, def string) (time.Duration, error) {
+	return getEnvWithDefaultDuration(env, def)
+}
+
+// GetEnvWithDefaultStrings should return a slice of sorted strings from
+// the environment or default split on, So "foo,bar" returns ["bar","foo"].
+func GetEnvWithDefaultStrings(env, def string) (v []string) {
+	return getEnvWithDefaultStrings(env, def)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -262,6 +293,56 @@ func buildFileRequest(
 	}
 
 	return req, err
+}
+
+func getEnvWithDefault(env, def string) string {
+	v := os.Getenv(env)
+	if v == "" {
+		return def
+	}
+
+	return v
+}
+
+func getEnvWithDefaultInt(env string, def int) (int, error) {
+	v := os.Getenv(env)
+	if v == "" {
+		return def, nil
+	}
+
+	return strconv.Atoi(v)
+}
+
+func getEnvWithDefaultBool(env string, def bool) (bool, error) {
+	v := os.Getenv(env)
+	if v == "" {
+		return def, nil
+	}
+
+	return strconv.ParseBool(v)
+}
+
+func getEnvWithDefaultDuration(env, def string) (time.Duration, error) {
+	v := os.Getenv(env)
+	if v == "" {
+		v = def
+	}
+
+	return time.ParseDuration(v)
+}
+
+func getEnvWithDefaultStrings(env, def string) (v []string) {
+	env = GetEnvWithDefault(env, def)
+	if env == "" {
+		return make([]string, 0)
+	}
+
+	v = strings.Split(env, ",")
+	if !sort.StringsAreSorted(v) {
+		sort.Strings(v)
+	}
+
+	return v
 }
 
 // // SaveToFile should copy the contents of given file to destination file.
